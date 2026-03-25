@@ -116,7 +116,9 @@ func (uc *AnalyzePageUseCase) Execute(
 			invalidCount++
 			continue
 		}
-		if service.ClassifyLink(parsedLink, page.BaseURL) {
+		// Classify against the actual page URL, not the <base> tag URL.
+		// The <base> tag only affects resolution, not host identity.
+		if service.ClassifyLink(parsedLink, fetchResult.FinalURL) {
 			internalCount++
 		} else {
 			externalCount++

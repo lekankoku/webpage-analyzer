@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	userAgent   = "Mozilla/5.0 (compatible; WebAnalyzer/1.0)"
-	maxBodySize = 10 * 1024 * 1024 // 10 MB hard cap
-	timeout     = 10 * time.Second
+	userAgent      = "Mozilla/5.0 (compatible; WebAnalyzer/1.0)"
+	maxBodySize    = 10 * 1024 * 1024 // 10 MB hard cap
+	defaultTimeout = 10 * time.Second
 )
 
 // Typed sentinel errors allow callers to distinguish failure modes without
@@ -38,6 +38,11 @@ type Fetcher struct {
 
 // New returns a Fetcher with a 10-second timeout.
 func New() *Fetcher {
+	return NewWithTimeout(defaultTimeout)
+}
+
+// NewWithTimeout returns a Fetcher with a custom client timeout.
+func NewWithTimeout(timeout time.Duration) *Fetcher {
 	return &Fetcher{
 		client: &http.Client{Timeout: timeout},
 	}

@@ -139,7 +139,62 @@ describe('reducer', () => {
     })
   })
 
+  describe('RATE_LIMITED', () => {
+    it('transitions to rate_limited with countdown and preserved url', () => {
+      const result = reducer(submittingState, {
+        type: 'RATE_LIMITED',
+        url: 'https://example.com',
+      })
+      expect(result).toEqual({
+        status: 'rate_limited',
+        retryIn: 5,
+        url: 'https://example.com',
+      })
+    })
+  })
+
+  describe('RETRY_TICK', () => {
+    it('decrements retryIn when rate_limited', () => {
+      const limited: AnalysisState = {
+        status: 'rate_limited',
+        retryIn: 3,
+        url: 'https://a.com',
+      }
+      const result = reducer(limited, { type: 'RETRY_TICK' })
+      expect(result).toEqual({
+        status: 'rate_limited',
+        retryIn: 2,
+        url: 'https://a.com',
+      })
+    })
+
+    it('does not decrement below zero', () => {
+      const limited: AnalysisState = {
+        status: 'rate_limited',
+        retryIn: 0,
+        url: 'https://a.com',
+      }
+      const result = reducer(limited, { type: 'RETRY_TICK' })
+      expect(result).toEqual(limited)
+    })
+
+    it('ignores RETRY_TICK when not rate_limited', () => {
+      const result = reducer(idleState, { type: 'RETRY_TICK' })
+      expect(result).toEqual(idleState)
+    })
+  })
+
   describe('RESET', () => {
+    it('transitions from rate_limited to idle', () => {
+      const limited: AnalysisState = {
+        status: 'rate_limited',
+        retryIn: 2,
+        url: 'https://x.com',
+      }
+      const result = reducer(limited, { type: 'RESET' })
+      expect(result).toEqual({ status: 'idle' })
+    })
+
     it('transitions from done to idle', () => {
       const doneState: AnalysisState = {
         status: 'done',

@@ -6,6 +6,7 @@ export type AnalysisState =
   | { status: 'streaming'; phase: Phase; checked: number; total: number }
   | { status: 'done'; result: AnalysisResult; partial: boolean }
   | { status: 'error'; message: string; statusCode?: number }
+  | { status: 'rate_limited'; retryIn: number; url: string }
 
 export type Action =
   | { type: 'SUBMIT' }
@@ -14,6 +15,8 @@ export type Action =
   | { type: 'PROGRESS'; checked: number; total: number }
   | { type: 'RESULT'; payload: AnalysisResult }
   | { type: 'ERROR'; message: string; statusCode?: number }
+  | { type: 'RATE_LIMITED'; url: string }
+  | { type: 'RETRY_TICK' }
   | { type: 'RESET' }
 
 export interface AnalysisResult {

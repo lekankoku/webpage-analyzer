@@ -4,12 +4,16 @@ import { useAnalysis } from '@/hooks/useAnalysis'
 import { UrlForm } from './UrlForm'
 import { ProgressPanel } from './ProgressPanel'
 import { ErrorCard } from './ErrorCard'
+import { RateLimitedCard } from './RateLimitedCard'
 import { ResultPanel, ResultSkeleton } from './ResultPanel'
 
 export function AnalysisPage() {
-  const { state, submit, reset } = useAnalysis()
+  const { state, submit, reset, cancelRetry } = useAnalysis()
 
-  const isDisabled = state.status === 'submitting' || state.status === 'streaming'
+  const isDisabled =
+    state.status === 'submitting' ||
+    state.status === 'streaming' ||
+    state.status === 'rate_limited'
 
   const handleSubmit = (url: string) => {
     if (state.status === 'done' || state.status === 'error') {
@@ -44,6 +48,10 @@ export function AnalysisPage() {
           />
           {state.phase === 'checking_links' && <ResultSkeleton />}
         </>
+      )}
+
+      {state.status === 'rate_limited' && (
+        <RateLimitedCard retryIn={state.retryIn} onCancel={cancelRetry} />
       )}
 
       {state.status === 'error' && (

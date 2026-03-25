@@ -41,16 +41,21 @@ export function UrlForm({
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const prevStatusRef = useRef<AnalysisState['status']>(status)
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  // Return focus to input after analysis completes or errors
+  // Return focus to input after analysis completes, errors, or cancel from rate limit
   useEffect(() => {
     if (status === 'done' || status === 'error') {
       inputRef.current?.focus()
     }
+    if (status === 'idle' && prevStatusRef.current === 'rate_limited') {
+      inputRef.current?.focus()
+    }
+    prevStatusRef.current = status
   }, [status])
 
   const validate = (value: string) => {

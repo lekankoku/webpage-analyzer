@@ -154,7 +154,7 @@ event: result
 data: { ...AnalysisResult }
 
 event: error
-data: {"message": "Could not reach host: example.com", "job_id": "550e8400-..."}
+data: {"message": "HTTP 404: page not found at example.com", "job_id": "550e8400-...", "status_code": 404}
 ```
 
 ### Phase Sequence
@@ -844,16 +844,21 @@ func (uc *AnalyzePageUseCase) Execute(
 13. Emit `result` with completed `AnalysisResult` (Partial may be true)
     - Always emit `result` even if partial — client can inspect the `partial` flag
 
-**Error events must include jobID for log correlation:**
+**Error events must include jobID and status_code for log correlation:**
 ```go
 emit(SSEEvent{
     Type: "error",
-    Data: map[string]string{
-        "message": err.Error(),
-        "job_id":  jobID,
+    Data: map[string]any{
+        "message":     fmt.Sprintf("HTTP %d: %s", statusCode, errDescription),
+        "job_id":      jobID,
+        "status_code": statusCode, // omit key entirely for network-level errors (0)
     },
 })
 ```
+
+For network-level failures (DNS, timeout, TLS) where no HTTP response was received,
+omit `status_code` from the payload entirely rather than sending `0`. The `message`
+field should describe the failure: e.g. `"connection timeout reaching example.com"`.
 
 **Server-side logging:** log `jobID` at every phase transition at INFO level.
 This is the only way to join client-side error reports to server-side traces.
@@ -1013,7 +1018,13 @@ Integration Test 1: full pipeline — mock server returns valid HTML5 page
 Integration Test 2: unreachable URL
   - submit URL to a port with no listener
   - assert SSE stream emits exactly one "error" event containing job_id
+  - assert error event message describes the failure (network error, no status_code field)
   - assert no "result" event emitted
+
+Integration Test 2b: URL returns HTTP error status
+  - mock server returns HTTP 404
+  - assert SSE stream emits "error" event with status_code = 404
+  - assert message contains "404"
 
 Integration Test 3: page with no links
   - mock server returns valid HTML with no <a> tags
@@ -1069,7 +1080,7 @@ Edge case tests (all using mock servers):
 | Job TTL / cleanup | **Implemented** — TTL reaper goroutine (default 1hr) started at boot via `StartReaper`. Prevents unbounded memory growth in long-running processes. |
 | `progress` callback on interface | **Fixed** — removed from `LinkChecker` interface. Application layer owns progress emission via 500ms ticker. Interface stays minimal and mockable. |
 | Partial result on interrupted analysis | **Implemented** — `CheckAll` returns `(map, error)`. Application layer sets `Partial = true` on `AnalysisResult` when err != nil. Result always emitted, client inspects flag. |
-| Correlation ID on SSE error events | **Implemented** — `job_id` included in all SSE error event payloads. Server logs jobID at every phase transition. |
+| HTTP status code in SSE error events | **Implemented** — `status_code` field added to `SSEErrorEvent` payload. `message` also includes the code inline (e.g. `"HTTP 404: page not found at example.com"`). Omitted entirely for network-level failures (DNS, timeout, TLS) where no HTTP response was received. |
 | User-Agent on HTTP clients | **Implemented** — `Mozilla/5.0 (compatible; WebAnalyzer/1.0)` set on fetcher and link checker. Prevents 403s from servers blocking `Go-http-client/1.1`. |
 | Body size limit on fetcher | **Implemented** — `io.LimitReader` cap at 10MB. Prevents OOM on oversized or malicious pages. |
 | Integration tests hitting real network | **Fixed** — all integration tests use `httptest.NewServer` with HTML fixtures. Zero real outbound calls. Fully deterministic in CI. |
@@ -1279,7 +1290,7 @@ paths:
                   summary: Error (terminal — replaces result on unrecoverable failure)
                   value: |
                     event: error
-                    data: {"message":"Could not reach host: example.com","job_id":"550e8400-e29b-41d4-a716-446655440000"}
+                    data: {"message":"HTTP 404: page not found at example.com","job_id":"550e8400-e29b-41d4-a716-446655440000","status_code":404}
 
         "404":
           description: Job ID not found
@@ -1473,7 +1484,12 @@ components:
       properties:
         message:
           type: string
-          example: "Could not reach host: example.com"
+          description: >
+            Human-readable error description. For HTTP failures, includes the
+            status code inline — e.g. "HTTP 404: page not found at example.com".
+            For network errors (DNS, timeout, TLS), describes the failure without
+            a status code.
+          example: "HTTP 404: page not found at example.com"
         job_id:
           type: string
           format: uuid
@@ -1481,6 +1497,13 @@ components:
             Included for log correlation. Join this against server-side logs
             to trace the full request lifecycle.
           example: "550e8400-e29b-41d4-a716-446655440000"
+        status_code:
+          type: integer
+          description: >
+            HTTP status code returned by the server, if available.
+            Absent for network-level failures (DNS resolution failure, timeout,
+            TLS handshake error) where no HTTP response was received.
+          example: 404
 
   # Security schemes placeholder — auth is out of scope for this implementation.
   # When added, replace the job_id-as-token pattern with one of:

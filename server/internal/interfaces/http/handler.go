@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 
 	"web-analyzer/internal/application"
 )
@@ -37,6 +38,8 @@ func NewHandler(
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /analyze", h.handleAnalyze)
 	mux.HandleFunc("GET /analyze/stream", h.handleStream)
+	mux.HandleFunc("GET /openapi.yaml", h.handleOpenAPI)
+	mux.HandleFunc("GET /docs", h.handleDocs)
 }
 
 // handleAnalyze accepts POST /analyze, validates the URL, creates a job,
@@ -137,3 +140,43 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
+
+func (h *Handler) handleOpenAPI(w http.ResponseWriter, _ *http.Request) {
+	spec, err := os.ReadFile("docs/openapi.yaml")
+	if err != nil {
+		http.Error(w, "openapi spec not found", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(spec)
+}
+
+func (h *Handler) handleDocs(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(swaggerUIHTML))
+}
+
+const swaggerUIHTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Web Analyzer API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.onload = function () {
+      window.ui = SwaggerUIBundle({
+        url: "/openapi.yaml",
+        dom_id: "#swagger-ui",
+      });
+    };
+  </script>
+</body>
+</html>
+`

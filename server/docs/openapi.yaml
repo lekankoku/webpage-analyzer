@@ -1,0 +1,237 @@
+openapi: 3.1.0
+info:
+  title: Web Page Analyzer API
+  version: 1.0.0
+  description: >
+    Analyzes a given URL and extracts structural and accessibility information
+    from the corresponding web page. Analysis runs asynchronously - submit a
+    URL to receive a job ID, then stream real-time progress via SSE.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+security: []
+tags:
+  - name: Analysis
+    description: Submit and stream web page analysis jobs
+paths:
+  /analyze:
+    post:
+      tags: [Analysis]
+      summary: Submit a URL for analysis
+      description: >
+        Validates the URL and enqueues an analysis job. Returns a job ID
+        immediately. Use GET /analyze/stream?id={jobId} to stream progress
+        and receive the final result.
+      operationId: submitAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+            example:
+              url: https://example.com
+      responses:
+        "202":
+          description: Job accepted - use the job_id to subscribe to the SSE stream
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+              example:
+                job_id: 550e8400-e29b-41d4-a716-446655440000
+        "400":
+          description: Invalid or malformed URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_scheme:
+                  summary: Missing scheme
+                  value:
+                    error: invalid URL: missing scheme (must be http or https)
+                invalid_body:
+                  summary: Invalid body
+                  value:
+                    error: invalid request body
+        "429":
+          description: Server at maximum concurrent analysis capacity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: too many concurrent analyses, try again shortly
+  /analyze/stream:
+    get:
+      tags: [Analysis]
+      summary: Stream analysis progress and result via SSE
+      description: >
+        Opens a Server-Sent Events stream for the given job ID. Emits phase
+        updates, progress counts, and a final result or error event.
+      operationId: streamAnalysis
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: Job ID returned by POST /analyze
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: SSE stream opened successfully
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                enum: [text/event-stream]
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-cache]
+            Connection:
+              schema:
+                type: string
+                enum: [keep-alive]
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE frames with event name + JSON payload
+              examples:
+                stream_example:
+                  summary: Typical event sequence
+                  value: |
+                    event: phase
+                    data: {"phase":"fetching","message":"Fetching page..."}
+
+                    event: phase
+                    data: {"phase":"parsing","message":"Parsing HTML..."}
+
+                    event: phase
+                    data: {"phase":"checking_links","message":"Checking links...","total":47}
+
+                    event: progress
+                    data: {"checked":12,"total":47}
+
+                    event: result
+                    data: {"html_version":"HTML5","title":"Example Domain","headings":{"h1":1},"internal_links":3,"external_links":12,"inaccessible_links":1,"unverified_links":2,"has_login_form":false}
+        "400":
+          description: Missing query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: missing id parameter
+        "404":
+          description: Job ID not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: job not found
+  /openapi.yaml:
+    get:
+      tags: [Analysis]
+      summary: Get raw OpenAPI specification
+      operationId: getOpenAPISpec
+      responses:
+        "200":
+          description: YAML specification
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /docs:
+    get:
+      tags: [Analysis]
+      summary: Open interactive API documentation
+      operationId: openDocsUI
+      responses:
+        "200":
+          description: Swagger UI HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+components:
+  schemas:
+    AnalyzeRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Fully qualified URL to analyze (http/https)
+          example: https://example.com
+    AnalyzeResponse:
+      type: object
+      required: [job_id]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: Job identifier used as SSE stream token
+          example: 550e8400-e29b-41d4-a716-446655440000
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid URL
+    AnalysisResult:
+      type: object
+      required:
+        - html_version
+        - title
+        - headings
+        - internal_links
+        - external_links
+        - inaccessible_links
+        - unverified_links
+        - has_login_form
+      properties:
+        html_version:
+          type: string
+          example: HTML5
+        title:
+          type: string
+          example: Example Domain
+        headings:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          example:
+            h1: 1
+            h2: 3
+        internal_links:
+          type: integer
+          minimum: 0
+          example: 10
+        external_links:
+          type: integer
+          minimum: 0
+          example: 5
+        inaccessible_links:
+          type: integer
+          minimum: 0
+          example: 2
+        unverified_links:
+          type: integer
+          minimum: 0
+          example: 1
+        has_login_form:
+          type: boolean
+          example: false
+        partial:
+          type: boolean
+          description: Present and true when link checks were interrupted
+          example: true

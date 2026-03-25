@@ -10,14 +10,43 @@ Server-Sent Events (SSE).
 ## How to run
 
 ```bash
+# Optional DX setup:
+cp .env.example .env
+
 go run cmd/app/main.go
-# Server starts on :8080
+# Server starts on WEB_ANALYZER_HTTP_ADDR (default: :8080)
 # Ctrl+C for graceful shutdown (30s drain)
 ```
 
 ---
 
+## Configuration (env)
+
+The app auto-loads `.env` (if present) and falls back to defaults.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WEB_ANALYZER_HTTP_ADDR` | `:8080` | HTTP listen address |
+| `WEB_ANALYZER_MAX_CONCURRENT_JOBS` | `10` | Max concurrent analysis jobs |
+| `WEB_ANALYZER_JOB_TTL` | `1h` | In-memory job retention before reaper cleanup |
+| `WEB_ANALYZER_SHUTDOWN_TIMEOUT` | `30s` | Graceful shutdown drain timeout |
+| `WEB_ANALYZER_LINK_CHECKER_MAX_WORKERS` | `100` | Global link-checker worker pool size |
+| `WEB_ANALYZER_LINK_CHECKER_JOB_BUFFER_SIZE` | `500` | Link-checker shared jobs channel buffer |
+| `WEB_ANALYZER_LINK_CHECKER_TIMEOUT` | `10s` | Per-link checker HTTP timeout |
+| `WEB_ANALYZER_LINK_CHECKER_RETRIES` | `2` | Retry attempts for transient link-check failures |
+| `WEB_ANALYZER_PAGE_FETCH_TIMEOUT` | `10s` | Initial page fetch timeout |
+
+---
+
 ## API reference
+
+### OpenAPI docs
+
+- Interactive docs: [http://localhost:8080/docs](http://localhost:8080/docs)
+- Raw spec: [http://localhost:8080/openapi.yaml](http://localhost:8080/openapi.yaml)
+- Source file: `docs/openapi.yaml`
+
+---
 
 ### POST /analyze
 

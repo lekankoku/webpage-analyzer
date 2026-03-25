@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -81,7 +82,14 @@ type fetcherAdapter struct {
 func (a *fetcherAdapter) Fetch(ctx context.Context, rawURL string) (*application.FetchResult, error) {
 	r, err := a.f.Fetch(ctx, rawURL)
 	if err != nil {
-		return nil, err
+		// Wrap into application.FetchError, promoting the HTTP status code when
+		// the server returned one. Network-level errors get StatusCode=0.
+		statusCode := 0
+		var httpErr *infrafetcher.HTTPStatusError
+		if errors.As(err, &httpErr) {
+			statusCode = httpErr.Code
+		}
+		return nil, &application.FetchError{Err: err, StatusCode: statusCode}
 	}
 	return &application.FetchResult{HTML: r.HTML, FinalURL: r.FinalURL}, nil
 }

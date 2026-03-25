@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +26,12 @@ type fetcherAdapter struct{ f *infrafetcher.Fetcher }
 func (a *fetcherAdapter) Fetch(ctx context.Context, rawURL string) (*application.FetchResult, error) {
 	r, err := a.f.Fetch(ctx, rawURL)
 	if err != nil {
-		return nil, err
+		statusCode := 0
+		var httpErr *infrafetcher.HTTPStatusError
+		if errors.As(err, &httpErr) {
+			statusCode = httpErr.Code
+		}
+		return nil, &application.FetchError{Err: err, StatusCode: statusCode}
 	}
 	return &application.FetchResult{HTML: r.HTML, FinalURL: r.FinalURL}, nil
 }
@@ -186,7 +192,7 @@ func TestIntegration_FullPipeline(t *testing.T) {
 	}
 }
 
-// ── Integration Test 2: unreachable URL ──────────────────────────────────────
+// ── Integration Test 2: unreachable URL (network-level error) ────────────────
 
 func TestIntegration_UnreachableURL(t *testing.T) {
 	// Port 1 is reserved/unreachable on all OSes.
@@ -201,10 +207,52 @@ func TestIntegration_UnreachableURL(t *testing.T) {
 		t.Error("expected no result event when fetch fails")
 	}
 
-	// Error event must include job_id.
 	d := decodeResult(t, errEvent)
 	if d["job_id"] == "" {
 		t.Error("error event missing job_id")
+	}
+	// Network-level failure: status_code must be absent from the payload.
+	if _, ok := d["status_code"]; ok {
+		t.Errorf("network error must not include status_code; got %v", d["status_code"])
+	}
+}
+
+// ── Integration Test 2b: HTTP error status (e.g. 404) ────────────────────────
+
+func TestIntegration_HTTPErrorStatus(t *testing.T) {
+	// Server returns 404 — fetcher must treat this as an error.
+	srv := mockServer(`<html><body>Not found</body></html>`, http.StatusNotFound)
+	defer srv.Close()
+
+	uc, _ := newPipeline(t, defaultCheckerCfg())
+	events := runPipeline(context.Background(), uc, srv.URL)
+
+	errEvent := findEvent(events, "error")
+	if errEvent == nil {
+		t.Fatal("expected error event for HTTP 404 response")
+	}
+	if findEvent(events, "result") != nil {
+		t.Error("expected no result event when fetch returns HTTP error")
+	}
+
+	d := decodeResult(t, errEvent)
+	if d["job_id"] == "" {
+		t.Error("error event missing job_id")
+	}
+
+	// HTTP error: status_code must be present and equal to 404.
+	sc, ok := d["status_code"]
+	if !ok {
+		t.Fatal("error event missing status_code for HTTP 404 response")
+	}
+	if sc != float64(404) {
+		t.Errorf("status_code: got %v, want 404", sc)
+	}
+
+	// Message must contain "404".
+	msg, _ := d["message"].(string)
+	if !strings.Contains(msg, "404") {
+		t.Errorf("message %q must contain '404'", msg)
 	}
 }
 

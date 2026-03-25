@@ -25,6 +25,17 @@ var (
 	ErrInvalidURL  = errors.New("invalid URL")
 )
 
+// HTTPStatusError is returned when the server responds with a 4xx or 5xx status code.
+// It can be retrieved from an error chain with errors.As.
+type HTTPStatusError struct {
+	Code int    // HTTP status code (e.g. 404)
+	URL  string // requested URL
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d fetching %s", e.Code, e.URL)
+}
+
 // Result holds the raw HTML and the final URL (after any HTTP redirects).
 type Result struct {
 	HTML     string
@@ -69,6 +80,12 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
 		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
+
+	// Treat 4xx/5xx as errors — callers can inspect HTTPStatusError for the code.
+	if resp.StatusCode >= 400 {
+		resp.Body.Close()
+		return nil, &HTTPStatusError{Code: resp.StatusCode, URL: rawURL}
+	}
 
 	limited := io.LimitReader(resp.Body, maxBodySize)
 	body, err := io.ReadAll(limited)

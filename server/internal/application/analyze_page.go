@@ -2,8 +2,10 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -23,6 +25,17 @@ type FetchResult struct {
 	HTML     string
 	FinalURL *url.URL
 }
+
+// FetchError is the error type returned by Fetcher implementations.
+// StatusCode is the HTTP response status when the server returned an error response;
+// it is 0 for network-level failures (DNS, timeout, TLS) where no HTTP response arrived.
+type FetchError struct {
+	Err        error
+	StatusCode int
+}
+
+func (e *FetchError) Error() string { return e.Err.Error() }
+func (e *FetchError) Unwrap() error { return e.Err }
 
 // Fetcher is the port for fetching a remote URL.
 type Fetcher interface {
@@ -63,7 +76,7 @@ func (uc *AnalyzePageUseCase) Execute(
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" ||
 		(parsed.Scheme != "http" && parsed.Scheme != "https") {
 		msg := fmt.Sprintf("invalid URL: %s", rawURL)
-		emitError(emit, msg, jobID)
+		emitError(emit, msg, jobID, 0)
 		return fmt.Errorf("%s", msg)
 	}
 
@@ -75,7 +88,18 @@ func (uc *AnalyzePageUseCase) Execute(
 
 	fetchResult, err := uc.Fetcher.Fetch(ctx, rawURL)
 	if err != nil {
-		emitError(emit, fmt.Sprintf("could not fetch %s: %v", rawURL, err), jobID)
+		statusCode := 0
+		var fetchErr *FetchError
+		if errors.As(err, &fetchErr) {
+			statusCode = fetchErr.StatusCode
+		}
+		var msg string
+		if statusCode != 0 {
+			msg = fmt.Sprintf("HTTP %d: %s fetching %s", statusCode, httpStatusText(statusCode), rawURL)
+		} else {
+			msg = fmt.Sprintf("could not fetch %s: %v", rawURL, err)
+		}
+		emitError(emit, msg, jobID, statusCode)
 		return err
 	}
 
@@ -87,7 +111,7 @@ func (uc *AnalyzePageUseCase) Execute(
 
 	page, err := uc.Parser.Parse(fetchResult.HTML, fetchResult.FinalURL)
 	if err != nil {
-		emitError(emit, fmt.Sprintf("could not parse HTML: %v", err), jobID)
+		emitError(emit, fmt.Sprintf("could not parse HTML: %v", err), jobID, 0)
 		return err
 	}
 
@@ -197,9 +221,25 @@ func (uc *AnalyzePageUseCase) Execute(
 	return nil
 }
 
-func emitError(emit func(SSEEvent), message, jobID string) {
-	emit(SSEEvent{Type: "error", Data: map[string]string{
+// emitError emits a terminal SSE error event.
+// statusCode is the HTTP status from the server; pass 0 for network-level errors
+// where no HTTP response was received — the key is omitted from the payload entirely.
+func emitError(emit func(SSEEvent), message, jobID string, statusCode int) {
+	data := map[string]any{
 		"message": message,
 		"job_id":  jobID,
-	}})
+	}
+	if statusCode != 0 {
+		data["status_code"] = statusCode
+	}
+	emit(SSEEvent{Type: "error", Data: data})
+}
+
+// httpStatusText returns the canonical HTTP reason phrase for a status code,
+// falling back to the numeric string for unrecognised codes.
+func httpStatusText(code int) string {
+	if text := http.StatusText(code); text != "" {
+		return text
+	}
+	return fmt.Sprintf("status %d", code)
 }

@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #0D1117;
+  --bg-surface: #161B22;
+  --bg-elevated: #1C2128;
+  --accent: #58A6FF;
+  --accent-warm: #F0883E;
+  --success: #3FB950;
+  --danger: #F85149;
+  --text-primary: #E6EDF3;
+  --text-muted: #7D8590;
+  --border: #30363D;
+}
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+@keyframes fade-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { transform: scale(0) rotate(-20deg); opacity: 0; }
+  to   { transform: scale(1) rotate(0deg);   opacity: 1; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-5px); }
+  40%      { transform: translateX(5px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(3px); }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 25%,
+    var(--bg-surface) 50%,
+    var(--bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.fade-slide-in {
+  animation: fade-slide-in 0.3s ease forwards;
+}
+
+.step-check {
+  animation: scale-in 200ms ease forwards;
+}
+
+.result-card {
+  animation: fade-up 0.35s ease forwards;
+}
+.result-card:nth-child(1) { animation-delay: 0ms; }
+.result-card:nth-child(2) { animation-delay: 70ms; }
+.result-card:nth-child(3) { animation-delay: 140ms; }
+.result-card:nth-child(4) { animation-delay: 210ms; }
+
+.error-card {
+  animation: shake 0.4s ease;
+}

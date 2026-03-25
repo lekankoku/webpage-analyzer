@@ -22,11 +22,12 @@ const (
 
 // Job holds the runtime state for a single analysis request.
 type Job struct {
-	ID        string
-	Status    JobStatus
-	Result    *model.AnalysisResult // non-nil after SetDone
-	Error     string                // non-empty after SetFailed
-	CreatedAt time.Time
+	ID            string
+	Status        JobStatus
+	Result        *model.AnalysisResult // non-nil after SetDone
+	Error         string                // non-empty after SetFailed
+	CreatedAt     time.Time
+	TerminalEvent *SSEEvent // set by Publish when a result/error event is delivered
 }
 
 // JobStore is a thread-safe in-memory store for jobs and their SSE subscribers.
@@ -98,8 +99,8 @@ func (s *JobStore) SetFailed(id string, errMsg string) {
 //   - ch: a read-only channel that will receive SSE events
 //   - unsub: call to remove the subscriber (use when client disconnects early)
 //
-// If the job is already in a terminal state, ch immediately contains the
-// terminal event and is closed — the caller should range over it and return.
+// If a terminal event (result/error) has already been published for this job,
+// ch immediately contains that event and is closed — range over it and return.
 func (s *JobStore) Subscribe(id string) (<-chan SSEEvent, func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,16 +114,9 @@ func (s *JobStore) Subscribe(id string) (<-chan SSEEvent, func()) {
 		return ch, func() {}
 	}
 
-	switch job.Status {
-	case JobDone:
-		ch <- SSEEvent{Type: "result", Data: job.Result}
-		close(ch)
-		return ch, func() {}
-	case JobFailed:
-		ch <- SSEEvent{Type: "error", Data: map[string]string{
-			"message": job.Error,
-			"job_id":  id,
-		}}
+	// Replay stored terminal event for late subscribers.
+	if job.TerminalEvent != nil {
+		ch <- *job.TerminalEvent
 		close(ch)
 		return ch, func() {}
 	}
@@ -159,6 +153,19 @@ func (s *JobStore) Publish(id string, event SSEEvent) {
 	}
 
 	if event.Type == "result" || event.Type == "error" {
+		// Store terminal event so late subscribers can replay it.
+		if job, ok := s.jobs[id]; ok {
+			e := event
+			job.TerminalEvent = &e
+			if event.Type == "result" {
+				job.Status = JobDone
+				if r, ok := event.Data.(*model.AnalysisResult); ok {
+					job.Result = r
+				}
+			} else {
+				job.Status = JobFailed
+			}
+		}
 		for _, ch := range s.subscribers[id] {
 			close(ch)
 		}

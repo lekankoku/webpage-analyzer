@@ -111,6 +111,7 @@ src/
 │   │   ├── ProgressPanel.tsx         # 3-step stepper + progress bar
 │   │   ├── ResultPanel.tsx           # Orchestrates result cards
 │   │   ├── ErrorCard.tsx             # Error display with optional status badge
+│   │   ├── RateLimitedCard.tsx       # 429 — amber countdown + auto-retry
 │   │   ├── PageMetaCard.tsx          # HTML version + title
 │   │   ├── HeadingsChart.tsx         # h1–h6 bar visualisation
 │   │   ├── LinksBreakdown.tsx        # 4 stat tiles
@@ -142,6 +143,7 @@ app/page.tsx                  ← Server Component (default)
         ├── <UrlForm />
         ├── <ProgressPanel />
         ├── <ErrorCard />
+        ├── <RateLimitedCard />
         └── <ResultPanel />
               ├── <PageMetaCard />
               ├── <HeadingsChart />
@@ -155,13 +157,15 @@ app/page.tsx                  ← Server Component (default)
 
 ## 4. State Machine
 
-The entire application lives in one `useReducer`. Five distinct states, each with its own UI.
+The entire application lives in one `useReducer`. Six distinct states, each with its own UI.
 
 ```
          submit
   IDLE ──────────► SUBMITTING
                         │
-              POST 202  │  POST 4xx/5xx
+              POST 202  │  POST 400/5xx     POST 429
+                        │                ──────────► RATE_LIMITED
+                        │                  (countdown → auto-resubmit → IDLE)
                         ▼
               STREAMING ──────────► ERROR (terminal)
                         │
@@ -170,6 +174,7 @@ The entire application lives in one `useReducer`. Five distinct states, each wit
                       DONE (terminal)
 
   ERROR and DONE re-enable the form → RESET → IDLE
+  RATE_LIMITED counts down then re-submits the same URL automatically
 ```
 
 ### State Shape
@@ -185,6 +190,8 @@ export type AnalysisState =
   | { status: 'streaming'; phase: Phase; checked: number; total: number }
   | { status: 'done'; result: AnalysisResult; partial: boolean }
   | { status: 'error'; message: string; statusCode?: number }
+  | { status: 'rate_limited'; retryIn: number; url: string }
+  // retryIn: seconds remaining. url: preserved so auto-retry can resubmit it.
 
 export type Action =
   | { type: 'SUBMIT' }
@@ -193,6 +200,8 @@ export type Action =
   | { type: 'PROGRESS'; checked: number; total: number }
   | { type: 'RESULT'; payload: AnalysisResult }
   | { type: 'ERROR'; message: string; statusCode?: number }
+  | { type: 'RATE_LIMITED'; url: string }
+  | { type: 'RETRY_TICK' }        // decrements retryIn by 1 each second
   | { type: 'RESET' }
 
 export interface AnalysisResult {
@@ -375,7 +384,78 @@ React 19's `<Activity />` keeps skeleton cards mounted but visually hidden durin
 
 ---
 
-### State 4: `done`
+### State 4: `rate_limited`
+
+**Trigger:** `POST /analyze` returns 429. The backend is at max concurrent job capacity (default 10).  
+**What the user sees:** Amber card — not red. This is not a failure, just a queue. Countdown ticks down, then auto-retries the same URL.
+
+```
+┌──────────────────────────────────────────────────┐
+│  ⏱  Server busy — retrying in 5s...             │
+│     [ Cancel ]                                   │
+└──────────────────────────────────────────────────┘
+```
+
+**Critically different from `error`:**
+- Colour: `--accent-warm` (amber) not `--danger` (red)
+- No shake animation — this isn't a failure
+- Shows a live countdown: `retrying in 5s… 4s… 3s…`
+- Has a Cancel button that resets to `idle` without retrying
+- On countdown reaching 0: automatically dispatches `SUBMIT` with the preserved URL
+
+**Countdown implementation — `useEffect` interval, not state ticks:**
+```tsx
+// RateLimitedCard.tsx
+useEffect(() => {
+  if (state.status !== 'rate_limited') return
+
+  const interval = setInterval(() => {
+    dispatch({ type: 'RETRY_TICK' })
+  }, 1000)
+
+  return () => clearInterval(interval)
+}, [state.status])
+
+// When retryIn hits 0, parent useAnalysis auto-submits
+useEffect(() => {
+  if (state.status === 'rate_limited' && state.retryIn <= 0) {
+    submit(state.url)   // re-submits the preserved URL
+  }
+}, [state])
+```
+
+**Reducer cases:**
+```typescript
+case 'RATE_LIMITED':
+  return { status: 'rate_limited', retryIn: 5, url: action.url }
+
+case 'RETRY_TICK':
+  if (state.status !== 'rate_limited') return state
+  return { ...state, retryIn: state.retryIn - 1 }
+```
+
+**Why 5 seconds?** The backend 429 means all 10 semaphore slots are occupied. At ~2–30s per job, 5s gives a reasonable chance a slot frees up without being so long it feels broken. No backoff — a single retry is sufficient; if it 429s again, it falls through to a normal `error`.
+
+**Second consecutive 429:** If the auto-retry also gets a 429, dispatch `ERROR` with the backend message. Do not loop indefinitely.
+
+```typescript
+// In submit(), track retry attempts
+if (res.status === 429 && !isRetry) {
+  dispatch({ type: 'RATE_LIMITED', url })
+  return
+}
+if (res.status === 429 && isRetry) {
+  // Second 429 — give up, show error
+  dispatch({ type: 'ERROR', message: body.error, statusCode: 429 })
+  return
+}
+```
+
+**Aria:** `role="status"` on the card — it's informational, not an alert. The countdown uses `aria-live="polite"` with `aria-atomic="true"` so screen readers announce `"retrying in 4 seconds"` each tick without being disruptive.
+
+---
+
+### State 5: `done`
 
 Progress panel fades out. Result cards stagger in with `fade-up`.
 
@@ -403,7 +483,7 @@ Form re-enables immediately.
 
 ---
 
-### State 5: `error`
+### State 6: `error`
 
 Red error card with a brief shake. `role="alert"` announces it immediately to screen readers.
 
@@ -443,6 +523,7 @@ Red error card with a brief shake. `role="alert"` announces it immediately to sc
 | `streaming / fetching` | ~0.5–2s | `animate-ping` dot step 1 | `aria-live="polite"` |
 | `streaming / parsing` | ~0.1–0.5s | `scale-in` checkmark + ping step 2 | `aria-live="polite"` |
 | `streaming / checking_links` | Longest | Progress bar fill + shimmer skeletons | `role="progressbar"` + `aria-valuenow` |
+| `rate_limited` | 5s countdown | None — amber card, live countdown | `role="status"` + `aria-live="polite"` |
 | `done` | — | Staggered `fade-up` on cards | `role="region"` |
 | `error` | — | `shake` on card | `role="alert"` |
 
@@ -470,6 +551,11 @@ function reducer(state: AnalysisState, action: Action): AnalysisState {
       return { status: 'done', result: action.payload, partial: action.payload.partial ?? false }
     case 'ERROR':
       return { status: 'error', message: action.message, statusCode: action.statusCode }
+    case 'RATE_LIMITED':
+      return { status: 'rate_limited', retryIn: 5, url: action.url }
+    case 'RETRY_TICK':
+      if (state.status !== 'rate_limited') return state
+      return { ...state, retryIn: state.retryIn - 1 }
     case 'RESET':
       return { status: 'idle' }
     default:
@@ -480,9 +566,12 @@ function reducer(state: AnalysisState, action: Action): AnalysisState {
 export function useAnalysis() {
   const [state, dispatch] = useReducer(reducer, { status: 'idle' })
   const esRef = useRef<EventSource | null>(null)
+  // Track whether this submit is an auto-retry after a 429
+  // If a retry also gets a 429 we give up rather than looping indefinitely
+  const isRetryRef = useRef(false)
 
   const submit = async (url: string) => {
-    esRef.current?.close()   // Clean up any previous stream
+    esRef.current?.close()
     dispatch({ type: 'SUBMIT' })
 
     try {
@@ -491,6 +580,22 @@ export function useAnalysis() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       })
+
+      if (res.status === 429) {
+        if (isRetryRef.current) {
+          // Second consecutive 429 — server still saturated, stop retrying
+          isRetryRef.current = false
+          const body = await res.json().catch(() => ({ error: 'Server still busy — try again later' }))
+          dispatch({ type: 'ERROR', message: body.error, statusCode: 429 })
+        } else {
+          // First 429 — enter rate_limited state, countdown will auto-retry
+          dispatch({ type: 'RATE_LIMITED', url })
+        }
+        return
+      }
+
+      // Reset retry flag on any non-429 response
+      isRetryRef.current = false
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: 'Request failed' }))
@@ -504,7 +609,6 @@ export function useAnalysis() {
       const es = new EventSource(`/api/analyze/stream?id=${job_id}`)
       esRef.current = es
 
-      // Named SSE events require addEventListener — onmessage only fires for unnamed events
       es.addEventListener('phase', (e: MessageEvent) => {
         dispatch({ type: 'PHASE', payload: JSON.parse(e.data).phase })
       })
@@ -516,7 +620,7 @@ export function useAnalysis() {
 
       es.addEventListener('result', (e: MessageEvent) => {
         dispatch({ type: 'RESULT', payload: JSON.parse(e.data) as AnalysisResult })
-        es.close()  // Terminal
+        es.close()
       })
 
       es.addEventListener('error', (e: Event) => {
@@ -524,20 +628,40 @@ export function useAnalysis() {
           const data = JSON.parse((e as MessageEvent).data) as SSEErrorPayload
           dispatch({ type: 'ERROR', message: data.message, statusCode: data.status_code })
         } catch {
-          // Browser-level connection failure — no data field
           dispatch({ type: 'ERROR', message: 'Connection to server lost' })
         }
-        es.close()  // Terminal
+        es.close()
       })
 
     } catch {
+      isRetryRef.current = false
       dispatch({ type: 'ERROR', message: 'Failed to reach the analysis server' })
     }
   }
 
+  // Countdown ticker — runs only while rate_limited
+  useEffect(() => {
+    if (state.status !== 'rate_limited') return
+    const interval = setInterval(() => dispatch({ type: 'RETRY_TICK' }), 1000)
+    return () => clearInterval(interval)
+  }, [state.status])
+
+  // Auto-retry when countdown hits 0
+  useEffect(() => {
+    if (state.status === 'rate_limited' && state.retryIn <= 0) {
+      isRetryRef.current = true
+      submit(state.url)
+    }
+  }, [state])
+
   useEffect(() => () => { esRef.current?.close() }, [])
 
-  return { state, submit, reset: () => dispatch({ type: 'RESET' }) }
+  return {
+    state,
+    submit: (url: string) => { isRetryRef.current = false; submit(url) },
+    reset: () => dispatch({ type: 'RESET' }),
+    cancelRetry: () => dispatch({ type: 'RESET' }),
+  }
 }
 ```
 
@@ -683,6 +807,40 @@ Never render `statusCode` of `0`. The `status_code` field is absent from the SSE
 
 ---
 
+### `<RateLimitedCard />`
+
+| Prop | Type | Description |
+|---|---|---|
+| `retryIn` | `number` | Seconds remaining on countdown |
+| `onCancel` | `() => void` | Resets to idle without retrying |
+
+Visually amber (`--accent-warm`), never red. No shake animation.
+
+```
+┌──────────────────────────────────────────────────┐
+│  ⏱  Server busy — retrying in 5s...             │
+│                              [ Cancel ]          │
+└──────────────────────────────────────────────────┘
+```
+
+```tsx
+<div role="status" className="border border-[--accent-warm] rounded-lg p-4 ...">
+  <span className="text-[--accent-warm]">⏱</span>
+  <span>
+    Server busy — retrying in{' '}
+    <span aria-live="polite" aria-atomic="true" className="font-mono tabular-nums">
+      {retryIn}s
+    </span>
+    ...
+  </span>
+  <button onClick={onCancel}>Cancel</button>
+</div>
+```
+
+`aria-live="polite"` is scoped tightly to the countdown number only — not the whole card — so screen readers say `"4 seconds"` each tick without re-reading the full message.
+
+---
+
 ### `<HeadingsChart />`
 
 Horizontal bars for h1–h6. Only renders levels with count > 0.
@@ -733,6 +891,7 @@ Always text + colour. Never colour alone.
 - [ ] Progress stepper uses `aria-live="polite"`
 - [ ] Progress bar: `role="progressbar"`, `aria-valuenow`, `aria-valuemin="0"`, `aria-valuemax`
 - [ ] Error card: `role="alert"` — announced immediately
+- [ ] Rate limited card: `role="status"` + countdown `aria-live="polite"` scoped to number only
 - [ ] Partial warning: `role="status"`
 - [ ] Skeleton placeholders: `aria-hidden="true"`
 - [ ] All colour distinctions include text labels (badges, tiles, bars)
@@ -756,12 +915,13 @@ Always text + colour. Never colour alone.
 9.  UrlForm.tsx — input, validation, submitting spinner
 10. ProgressPanel.tsx — stepper all 3 phases, progress bar
 11. ErrorCard.tsx — shake animation, conditional status badge
+12. RateLimitedCard.tsx — amber card, live countdown, cancel button
 12. PageMetaCard, HeadingsChart, LinksBreakdown, LoginFormBadge
 13. ResultPanel.tsx — staggered fade-up, partial warning, skeleton placeholders
 14. AnalysisPage.tsx — wire everything to useAnalysis
 15. app/page.tsx — Server Component shell
 16. Accessibility pass — aria attrs, focus management, contrast
-17. Tests — reducer, UrlForm validation, ErrorCard variants
+17. Tests — reducer, UrlForm validation, ErrorCard variants, RateLimitedCard countdown + cancel
 ```
 
 ---

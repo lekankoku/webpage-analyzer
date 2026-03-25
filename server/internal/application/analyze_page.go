@@ -50,7 +50,7 @@ type Parser interface {
 // LinkChecker is the port for concurrently checking reachability of a URL batch.
 // DDD-lite: CheckResult lives in infrastructure/linkchecker to avoid duplication.
 type LinkChecker interface {
-	CheckAll(ctx context.Context, urls []string) (map[string]linkchecker.CheckResult, error)
+	CheckAll(ctx context.Context, urls []string, onChecked ...func()) (map[string]linkchecker.CheckResult, error)
 }
 
 // ── Use case ──────────────────────────────────────────────────────────────────
@@ -186,7 +186,9 @@ func (uc *AnalyzePageUseCase) Execute(
 		}
 	}()
 
-	checkerResults, checkErr := uc.Checker.CheckAll(ctx, normalizedURLs)
+	checkerResults, checkErr := uc.Checker.CheckAll(ctx, normalizedURLs, func() {
+		checkedSoFar.Add(1)
+	})
 	close(progressDone)
 	checkedSoFar.Store(int64(len(checkerResults)))
 

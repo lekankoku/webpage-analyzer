@@ -113,7 +113,13 @@ func (c *GlobalLinkChecker) Start(ctx context.Context) {
 func (c *GlobalLinkChecker) CheckAll(
 	ctx context.Context,
 	urls []string,
+	onChecked ...func(),
 ) (map[string]CheckResult, error) {
+	var progressCb func()
+	if len(onChecked) > 0 {
+		progressCb = onChecked[0]
+	}
+
 	seen := make(map[string]struct{})
 	var unique []string
 	for _, u := range urls {
@@ -146,6 +152,9 @@ func (c *GlobalLinkChecker) CheckAll(
 	for i := 0; i < total; i++ {
 		res := <-resultChan
 		output[res.URL] = res
+		if progressCb != nil {
+			progressCb()
+		}
 	}
 
 	if interrupted {

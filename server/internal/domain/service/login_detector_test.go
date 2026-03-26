@@ -61,6 +61,17 @@ func TestLoginDetector_NoForm_False(t *testing.T) {
 	}
 }
 
+func TestLoginDetector_JSRenderedAuthLoginRoute_True(t *testing.T) {
+	doc := parseDoc(t, `<html><head><title>ArbiBet</title></head><body>
+		<script>
+			self.__next_f.push([1,"... \"c\":[\"\",\"auth\",\"login\"] ..."])
+		</script>
+	</body></html>`)
+	if !service.DetectLoginForm(doc) {
+		t.Error("expected HasLoginForm=true: JS-rendered auth/login route signal")
+	}
+}
+
 func TestLoginDetector_AnmeldenInFormText_True(t *testing.T) {
 	doc := parseDoc(t, `<html><body>
 		<form>

@@ -18,30 +18,33 @@ export function LinksBreakdown({
       </h3>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatTile
-          label="Internal Links"
+          label="Internal (all discovered)"
           value={internalLinks}
           color="var(--text-primary)"
-          tooltip="Links pointing to the same domain"
+          tooltip="All discovered links pointing to the same domain"
         />
         <StatTile
-          label="External Links"
+          label="External (all discovered)"
           value={externalLinks}
           color="var(--accent)"
-          tooltip="Links pointing to other domains"
+          tooltip="All discovered links pointing to other domains"
         />
         <StatTile
-          label="Inaccessible"
+          label="Inaccessible (subset)"
           value={inaccessibleLinks}
           color="var(--danger)"
-          tooltip="Returned an error or couldn't be reached"
+          tooltip="Subset of discovered links that returned an error or couldn't be reached"
         />
         <StatTile
-          label="Unverified"
+          label="Unverified (subset)"
           value={unverifiedLinks}
           color="var(--accent-warm)"
-          tooltip="Server returned 401/403/429 — access denied, not confirmed broken"
+          tooltip="Subset of discovered links where server returned 401/403/429 (access denied)"
         />
       </div>
+      <p className="mt-3 text-xs text-[var(--text-muted)]">
+        Inaccessible and unverified are subsets of internal/external discovered links.
+      </p>
     </div>
   )
 }

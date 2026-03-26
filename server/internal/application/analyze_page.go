@@ -50,7 +50,7 @@ type Parser interface {
 // LinkChecker is the port for concurrently checking reachability of a URL batch.
 // DDD-lite: CheckResult lives in infrastructure/linkchecker to avoid duplication.
 type LinkChecker interface {
-	CheckAll(ctx context.Context, urls []string, onChecked ...func()) (map[string]linkchecker.CheckResult, error)
+	CheckAll(ctx context.Context, urls []string, onChecked ...func(string)) (map[string]linkchecker.CheckResult, error)
 }
 
 // ── Use case ──────────────────────────────────────────────────────────────────
@@ -161,13 +161,18 @@ func (uc *AnalyzePageUseCase) Execute(
 	htmlVersion := service.DetectHTMLVersion(fetchResult.HTML)
 
 	// 7. Link checking with 500ms progress ticker.
-	total := len(normalizedURLs)
+	// Progress should reflect all non-fragment links discovered:
+	// - checkable normalized links
+	// - invalid links we could not normalize/check
+	// This keeps the progress max aligned with user-visible "all links" expectations.
+	total := len(normalizedURLs) + invalidCount
 	log.Printf("[%s] phase=checking_links total=%d", jobID, total)
 	emit(SSEEvent{Type: "phase", Data: map[string]any{
 		"phase": "checking_links", "message": "Checking links...", "total": total,
 	}})
 
 	var checkedSoFar atomic.Int64
+	checkedSoFar.Store(int64(invalidCount))
 	progressDone := make(chan struct{})
 
 	go func() {
@@ -186,11 +191,21 @@ func (uc *AnalyzePageUseCase) Execute(
 		}
 	}()
 
-	checkerResults, checkErr := uc.Checker.CheckAll(ctx, normalizedURLs, func() {
-		checkedSoFar.Add(1)
+	countByURL := make(map[string]int, len(normalizedURLs))
+	for _, u := range normalizedURLs {
+		countByURL[u]++
+	}
+
+	checkerResults, checkErr := uc.Checker.CheckAll(ctx, normalizedURLs, func(checkedURL string) {
+		checkedSoFar.Add(int64(countByURL[checkedURL]))
 	})
 	close(progressDone)
-	checkedSoFar.Store(int64(len(checkerResults)))
+	checkedSoFar.Store(int64(total))
+	// Emit a final progress frame immediately so UI reaches N/N before result aggregation.
+	emit(SSEEvent{Type: "progress", Data: map[string]any{
+		"checked": checkedSoFar.Load(),
+		"total":   total,
+	}})
 
 	// 8. Aggregate accessibility counts.
 	// Start inaccessible at invalidCount (links that couldn't be normalised/checked).

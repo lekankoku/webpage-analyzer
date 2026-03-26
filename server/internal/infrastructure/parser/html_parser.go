@@ -10,9 +10,6 @@ import (
 	"web-analyzer/internal/domain/model"
 )
 
-// Parser extracts a WebPage domain model from raw HTML.
-type Parser struct{}
-
 // New returns a ready-to-use Parser.
 func New() *Parser { return &Parser{} }
 

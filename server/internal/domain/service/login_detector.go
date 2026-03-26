@@ -9,6 +9,18 @@ import (
 // loginSignals are the substrings checked (case-insensitively) against a form's
 // action, id, class, and visible text content.
 var loginSignals = []string{"login", "sign in", "signin", "anmelden", "log in"}
+var loginRouteSignals = []string{
+	"/login",
+	"auth/login",
+	"/auth/login",
+	"/signin",
+	"auth/signin",
+	"/auth/signin",
+	`"auth","login"`,
+	`"auth","signin"`,
+	`auth\",\"login`,
+	`auth\",\"signin`,
+}
 
 // DetectLoginForm returns true when the document appears to contain a login form.
 //
@@ -20,6 +32,25 @@ var loginSignals = []string{"login", "sign in", "signin", "anmelden", "log in"}
 func DetectLoginForm(doc *goquery.Document) bool {
 	hasPasswordInput := doc.Find(`input[type="password"]`).Length() > 0
 	if !hasPasswordInput {
+		// Keep original behavior for static forms: if markup already contains a form
+		// but no password input, this is not a login form.
+		if doc.Find("form").Length() > 0 {
+			return false
+		}
+
+		// CSR/SPA fallback: some apps (e.g. Next.js) render login UI client-side only,
+		// so server-fetched HTML has no <form> or password input. Detect strong route
+		// signals in raw HTML payload to avoid missing obvious login pages.
+		html, err := doc.Html()
+		if err != nil {
+			return false
+		}
+		combined := strings.ToLower(html)
+		for _, sig := range loginRouteSignals {
+			if strings.Contains(combined, sig) {
+				return true
+			}
+		}
 		return false
 	}
 

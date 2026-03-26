@@ -17,7 +17,7 @@ RUN apk add --no-cache ca-certificates wget
 COPY --from=build /bin/web-analyzer /bin/web-analyzer
 
 ENV WEB_ANALYZER_HTTP_ADDR=:8080 \
-    WEB_ANALYZER_MAX_CONCURRENT_JOBS=10 \
+    WEB_ANALYZER_MAX_CONCURRENT_JOBS=6 \
     WEB_ANALYZER_JOB_TTL=1h \
     WEB_ANALYZER_SHUTDOWN_TIMEOUT=30s \
     WEB_ANALYZER_LINK_CHECKER_MAX_WORKERS=100 \

@@ -42,7 +42,7 @@ func Load() Config {
 
 	return Config{
 		HTTPAddr:              env.String(envHTTPAddr, ":8080"),
-		MaxConcurrentJobs:     env.NonNegativeInt(envMaxConcurrentJobs, 10),
+		MaxConcurrentJobs:     env.NonNegativeInt(envMaxConcurrentJobs, 6),
 		JobTTL:                env.NonNegativeDuration(envJobTTL, time.Hour),
 		ShutdownTimeout:       env.NonNegativeDuration(envShutdownTimeout, 30*time.Second),
 		LinkCheckerMaxWorkers: env.NonNegativeInt(envCheckerMaxWorkers, 100),

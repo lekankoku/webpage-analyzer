@@ -11,9 +11,26 @@ servers:
     description: Local development
 security: []
 tags:
+  - name: Health
+    description: Liveness for load balancers and orchestrators
   - name: Analysis
     description: Submit and stream web page analysis jobs
 paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      description: Returns 200 when the HTTP server is accepting requests.
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
   /analyze:
     post:
       tags: [Analysis]
@@ -161,6 +178,14 @@ paths:
                 type: string
 components:
   schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          example: ok
     AnalyzeRequest:
       type: object
       required: [url]

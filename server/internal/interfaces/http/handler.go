@@ -34,12 +34,17 @@ func NewHandler(
 	}
 }
 
-// RegisterRoutes registers the two API endpoints on mux.
+// RegisterRoutes registers HTTP routes on mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /health", h.handleHealth)
 	mux.HandleFunc("POST /analyze", h.handleAnalyze)
 	mux.HandleFunc("GET /analyze/stream", h.handleStream)
 	mux.HandleFunc("GET /openapi.yaml", h.handleOpenAPI)
 	mux.HandleFunc("GET /docs", h.handleDocs)
+}
+
+func (*Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // handleAnalyze accepts POST /analyze, validates the URL, creates a job,

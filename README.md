@@ -42,7 +42,7 @@ When you submit a URL, a few things happen in sequence:
 4. As each phase completes, the backend pushes an event down the stream. The frontend updates in real time.
 5. When all links are checked, the backend sends a final `result` event and closes the stream.
 
-The whole thing is asynchronous on both ends. The backend never blocks on a single job, and the frontend never polls — it just listens.
+The whole thing is asynchronous on both ends. The backend never blocks on a single job, and the frontend never polls it just listens.
 
 ---
 
@@ -50,7 +50,7 @@ The whole thing is asynchronous on both ends. The backend never blocks on a sing
 
 ### Backend
 
-**Why non-blocking backpressure on POST `/analyze` (semaphore, no queue)?**
+**Non-blocking backpressure on POST `/analyze`?**
 Accepting a new analysis acquires a counting semaphore with a **non-blocking** try: if every slot is in use, the handler returns **429** immediately instead of blocking the HTTP request until capacity frees up. That prevents backpressure from turning into long queues of stalled connections and keeps per-request behaviour predictable. There is **no enqueue** of overflow work a submission either succeeds (**202** + `job_id`, with analysis running asynchronously in a goroutine) or is refused outright. 
 
 The default cap is 6 concurrent analyses (`WEB_ANALYZER_MAX_CONCURRENT_JOBS`), i set it to 6 because the SSE browser window limits under the assumption that only one client would be using it at a time.
@@ -69,10 +69,10 @@ HEAD requests are cheaper the server sends back headers but no body, so it's fas
 A link that returns 401, 403, or 429 isn't broken the server actively responded and said "you can't have this." That's meaningfully different from a link that times out or returns a 404. Lumping them together would give misleading counts.
 
 **Why does the backend set a `User-Agent` header on every outbound request?**
-Without it, requests go out as `Go-http-client/1.1`, which a surprising number of servers block or rate-limit by default. Setting a browser-like User-Agent string gets more accurate link check results — you're trying to simulate what a real user visiting the page would experience, not announce yourself as a bot.
+Without it, requests go out as `Go-http-client/1.1`, which some servers block or rate-limit by default. 
 
 **Why cap the fetched page at 10MB?(Failure mode)**
-Some pages are enormous, some are malicious. Without a cap, a single job could exhaust available memory. 10MB is generous the vast majority of real pages are under 1MB. If a page is truncated, the analyser logs a warning and continues with what it has. Partial HTML is still parseable.
+Some pages are enormous, some are malicious. Without a cap, a single job could exhaust available memory.
 
 **Job state stored in memory instead of a database?**
  The in-memory store is fast, simple, and sufficient. There's a TTL reaper that cleans up completed jobs after an hour so memory doesn't grow unboundedly over time.

@@ -1,4 +1,4 @@
-.PHONY: dev dev-server dev-frontend
+.PHONY: dev dev-server dev-frontend docker-up docker-down docker-build
 
 dev:
 	@set -e; \
@@ -14,3 +14,12 @@ dev-server:
 
 dev-frontend:
 	@cd frontend && pnpm dev
+
+docker-up:
+	docker compose up --build
+
+docker-down:
+	docker compose down
+
+docker-build:
+	docker compose build

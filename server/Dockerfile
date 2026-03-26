@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 go build -o /bin/web-analyzer ./cmd/app
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates wget
 
 COPY --from=build /bin/web-analyzer /bin/web-analyzer
 

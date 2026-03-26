@@ -90,6 +90,13 @@ func (c *GlobalLinkChecker) CheckAll(
 	submitted := 0
 	interrupted := false
 	for _, u := range unique {
+		// Check synchronously before select: if ctx is already done, both sending to
+		// jobs and <-ctx.Done() can be ready; select would pick randomly.
+		if ctx.Err() != nil {
+			interrupted = true
+			total = submitted
+			break
+		}
 		select {
 		case c.jobs <- linkCheckJob{url: u, resultChan: resultChan}:
 			submitted++

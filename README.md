@@ -1,8 +1,10 @@
 # Page Insight Tool
 
-A web application that takes a URL and tells you what's inside it — HTML version, page title, heading structure, link counts, whether the page has a login form, and which links are broken or blocked. Built with a Go backend and a Next.js frontend.
+A web application that takes a URL and tells you what's inside it HTML version, page title, heading structure, link counts, whether the page has a login form, and which links are broken or blocked. Built with a Go backend and a Next.js frontend.
 
 ---
+
+**View the deployed app:** [home24.putziplus.com](https://home24.putziplus.com)
 
 ## Getting Started
 

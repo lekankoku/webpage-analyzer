@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 )
 
@@ -31,12 +30,6 @@ type HTTPStatusError struct {
 
 func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("HTTP %d fetching %s", e.Code, e.URL)
-}
-
-// Result holds the raw HTML and the final URL (after any HTTP redirects).
-type Result struct {
-	HTML     string
-	FinalURL *url.URL
 }
 
 // Fetcher fetches a URL and returns the raw HTML body.

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -40,7 +39,7 @@ func main() {
 
 	// Wire infrastructure implementations to application ports.
 	uc := &application.AnalyzePageUseCase{
-		Fetcher: &fetcherAdapter{f: infrafetcher.NewWithTimeout(cfg.PageFetchTimeout)},
+		Fetcher: infrafetcher.NewWithTimeout(cfg.PageFetchTimeout),
 		Parser:  infraparser.New(),
 		Checker: checker,
 	}
@@ -72,29 +71,7 @@ func main() {
 	log.Println("server stopped")
 }
 
-// fetcherAdapter bridges infrastructure/fetcher to the application.Fetcher port.
-// The infrastructure Fetcher returns *fetcher.Result; the application port expects
-// *application.FetchResult — identical fields, different package types.
-type fetcherAdapter struct {
-	f *infrafetcher.Fetcher
-}
-
-func (a *fetcherAdapter) Fetch(ctx context.Context, rawURL string) (*application.FetchResult, error) {
-	r, err := a.f.Fetch(ctx, rawURL)
-	if err != nil {
-		// Wrap into application.FetchError, promoting the HTTP status code when
-		// the server returned one. Network-level errors get StatusCode=0.
-		statusCode := 0
-		var httpErr *infrafetcher.HTTPStatusError
-		if errors.As(err, &httpErr) {
-			statusCode = httpErr.Code
-		}
-		return nil, &application.FetchError{Err: err, StatusCode: statusCode}
-	}
-	return &application.FetchResult{HTML: r.HTML, FinalURL: r.FinalURL}, nil
-}
-
 // Compile-time interface satisfaction checks.
-var _ application.Fetcher = (*fetcherAdapter)(nil)
+var _ application.Fetcher = (*infrafetcher.Fetcher)(nil)
 var _ application.Parser = (*infraparser.Parser)(nil)
 var _ application.LinkChecker = (*linkchecker.GlobalLinkChecker)(nil)

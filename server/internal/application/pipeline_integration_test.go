@@ -3,7 +3,6 @@ package application_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,22 +18,6 @@ import (
 )
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
-
-// fetcherAdapter adapts infrastructure/fetcher to application.Fetcher.
-type fetcherAdapter struct{ f *infrafetcher.Fetcher }
-
-func (a *fetcherAdapter) Fetch(ctx context.Context, rawURL string) (*application.FetchResult, error) {
-	r, err := a.f.Fetch(ctx, rawURL)
-	if err != nil {
-		statusCode := 0
-		var httpErr *infrafetcher.HTTPStatusError
-		if errors.As(err, &httpErr) {
-			statusCode = httpErr.Code
-		}
-		return nil, &application.FetchError{Err: err, StatusCode: statusCode}
-	}
-	return &application.FetchResult{HTML: r.HTML, FinalURL: r.FinalURL}, nil
-}
 
 // checkerConfig carries optional per-test checker tuning.
 type checkerCfg struct {
@@ -75,7 +58,7 @@ func newPipeline(t *testing.T, cfg checkerCfg) (*application.AnalyzePageUseCase,
 	c.Start(rootCtx)
 
 	uc := &application.AnalyzePageUseCase{
-		Fetcher: &fetcherAdapter{f: infrafetcher.New()},
+		Fetcher: infrafetcher.New(),
 		Parser:  infraparser.New(),
 		Checker: c,
 	}

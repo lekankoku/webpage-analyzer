@@ -110,13 +110,10 @@ A few things are deliberately out of scope for this version:
 ## Possible Future Improvements
 
 **Make it smarter about what it fetches**
-Adding a headless browser option (via Playwright or chromedp) would let the tool handle JS-rendered pages — useful for auditing modern SPAs. It would be an opt-in flag rather than the default, since it's significantly slower and heavier.
+Adding a headless browser option (via Playwright or chromedp) would let the tool handle JS-rendered pages.
 
 **Authentication support**
 Letting users provide a session cookie or auth header would unlock the ability to analyse pages that are behind a login. The fetcher interface is already designed to accept headers, so the plumbing is mostly there.
-
-**Retry-After backoff for link checking**
-When an external server returns 429 with a `Retry-After` header, the link checker could honour it — wait the specified duration and retry. This would improve accuracy on sites that rate-limit aggressively.
 
 **Persistent job store**
 Swapping the in-memory store for Redis would mean jobs survive process restarts and the service could scale horizontally. The job store interface is already abstracted, so the swap wouldn't require changes to the application layer — just a new implementation behind the same interface.
